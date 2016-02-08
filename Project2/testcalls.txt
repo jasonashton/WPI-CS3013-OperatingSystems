@@ -1,0 +1,45 @@
+SAMPLE KERNEL OUTPUTS:
+
+1) ./shift2user when the process doesn't exist:
+axe@axe-cs3013box:~/project2/project2_phase2_testcalls$ ./shift2user 9999 1000
+No process with process ID 9999 was found
+
+KERNEL:
+Feb  5 22:05:29 axe-cs3013box kernel: [17909.924589] User ID 1000 tried to change loginuid of process with PID 500 but the process was not found
+
+2) ./shift2user is successful:
+axe@axe-cs3013box:~/project2/project2_phase2_testcalls$ sleep 600 &
+[1] 3819
+axe@axe-cs3013box:~/project2/project2_phase2_testcalls$ ./shift2user 3819 1001
+Successfully changed the loginuid of process with PID 3819 to user ID 1001
+
+KERNEL:
+Feb  5 22:06:08 axe-cs3013box kernel: [17948.943670] Process with PID 2351 created by user 1000 is changing loginuid to 1001
+
+3) ./shift2user is run by a non-privileged user on a process not owned by that process:
+axe@axe-cs3013box:~/project2/project2_phase2_testcalls$ ./shift2user 3819 1000
+You are not authorized to make the necessary user shift changes to process with PID 3819
+
+KERNEL:
+Feb  5 22:06:18 axe-cs3013box kernel: [17958.854094] User with UID 1000 attempted to change loginuid of process with PID 2351 and was not allowed as it is not authorized to do so
+
+4) ./shift2user is run by a priviliged user and runs successfully:
+axe@axe-cs3013box:~/project2/project2_phase2_testcalls$ sudo ./shift2user 3819 998
+Successfully changed the loginuid of process with PID 3819 to user ID 998
+
+KERNEL:
+Feb  5 22:12:04 axe-cs3013box kernel: [17965.404789] Priviliged user with UID 0 changed loginuid of process with PID 2351 to 1002
+
+5) ./getloginuid query was successful:
+axe@axe-cs3013box:~/project2/project2_phase2_testcalls$ ./getloginuid 3819
+loginuid of process with process ID 3819 is 998
+
+KERNEL:
+Feb  5 22:06:48 axe-cs3013box kernel: [17988.414178] User with user ID 1000 queried loginuid of process with PID 2351 and the returned value is 1002
+
+6) ./getloginuid query fails as the process was not found:
+axe@axe-cs3013box:~/project2/project2_phase2_testcalls$ ./getloginuid 3800
+No process with process ID 3800 was found
+
+KERNEL:
+Feb  5 22:06:50 axe-cs3013box kernel: [17990.878112] User with ID 1000 attempted to get loginuid of process with ID 2350 but the process was not found
