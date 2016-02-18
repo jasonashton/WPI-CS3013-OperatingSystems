@@ -8,6 +8,7 @@
 
 // Semaphore typedefs
 typedef pthread_mutex_t mutex;
+typedef pthread_cond_t mutex_cv;
 // Constant Definitions
 #define PRINT_DEBUGGING_INFO 0
 #define PRINT_PRIORITY_LINE 0
@@ -48,6 +49,9 @@ mutex *runway_lock;
 airplane *all_airplanes;
 int runwaysLocked[RUNWAYS_AIRSPACE];
 
+mutex_cv *shared_storage_lock; // Condition variable that will say if the shared storage is being used or not
+int sharedBeingUsed; // A varibale to keep track if the shared variable is being used or not
+
 // Plane functions prototypes
 void *plane_invoke_function(void *args);
 void planes_reset_priority();
@@ -68,14 +72,20 @@ void *plane_invoke_function(void *args) {
   int sleepSecs = (MIN_AIRSPACE_ENTER_WAIT_TIME + (rand() % (MAX_AIRSPACE_ENTER_WAIT_TIME - MIN_AIRSPACE_ENTER_WAIT_TIME)));
   sleep((unsigned int)sleepSecs); // Make the program sleep for those many seconds now
   // Now announce arrival into the airspace and set the struct
-  //  MUTEX: Grab mutex_lock and airplane lock
+  //  MUTEX: Grab mutex_lock and airplane lock and wait till the shared storage is free
   pthread_mutex_lock(mutex_lock);
   pthread_mutex_lock(airplane_lock + airplane_index);
+  while( sharedBeingUsed )
+    pthread_cond_wait(shared_storage_lock, mutex_lock); // Wait till the shared storage is free to write to
+  // We are now using the shared storage
+  sharedBeingUsed = 1;
   //  MUTEX CODE BLOCK END
   all_airplanes[airplane_index].in_airspace = 1; // Set the airplane struct
   //  MUTEX: Release mutex_lock and airplane lock
+  sharedBeingUsed = 0; // We are no longer using the shared variables
   pthread_mutex_unlock(airplane_lock + airplane_index);
   pthread_mutex_unlock(mutex_lock);
+  pthread_cond_broadcast(shared_storage_lock); // Broadcast the signal that other threads can now use the shared storage
   //  MUTEX CODE BLOCK END
   printf("[PLANE]: Plane with ID %d just entered the airspace with fuel %d.\n", an_airplane->id, an_airplane->fuel);
   // Now see if an emergency landing is needed or not by randomizing it
@@ -125,11 +135,17 @@ void *plane_invoke_function(void *args) {
     //  MUTEX: Grab mutex_lock and airplane lock
     pthread_mutex_lock(mutex_lock);
     pthread_mutex_lock(airplane_lock + airplane_index);
+    while( sharedBeingUsed )
+      pthread_cond_wait(shared_storage_lock, mutex_lock); // Wait till the shared storage is free to write to
+    // We are now using the shared storage
+    sharedBeingUsed = 1;
     //  MUTEX CODE BLOCK END
     all_airplanes[an_airplane->id - 1].force_emergency_priority = 1;
     //  MUTEX: Release mutex_lock and airplane lock
+    sharedBeingUsed = 0; // We are no longer using the shared variables
     pthread_mutex_unlock(airplane_lock + airplane_index);
     pthread_mutex_unlock(mutex_lock);
+    pthread_cond_broadcast(shared_storage_lock); // Broadcast the signal that other threads can now use the shared storage
     //  MUTEX CODE BLOCK END
 
     // Take over the airspace
@@ -166,6 +182,10 @@ void *plane_invoke_function(void *args) {
     //  MUTEX: Grab the mutex_lock and airplane lock
     pthread_mutex_lock(mutex_lock);
     pthread_mutex_lock(airplane_lock + airplane_index);
+    while( sharedBeingUsed )
+      pthread_cond_wait(shared_storage_lock, mutex_lock); // Wait till the shared storage is free to write to
+    // We are now using the shared storage
+    sharedBeingUsed = 1;
     //  MUTEX CODE BLOCK END
     all_airplanes[airplane_index].priority = 1; // Giving our current airplane top priority
     // Release the mutex lock for our airplane and push back the rest
@@ -197,7 +217,9 @@ void *plane_invoke_function(void *args) {
 
     // Release the mutex_lock lock now
     //  MUTEX: Release the mutex_lock lock now
+    sharedBeingUsed = 0; // We are no longer using the shared variables
     pthread_mutex_unlock(mutex_lock);
+    pthread_cond_broadcast(shared_storage_lock); // Broadcast the signal that other threads can now use the shared storage
     //  MUTEX CODE BLOCK END
   }
   // Request re-prioritizing the planes now
@@ -228,6 +250,10 @@ void planes_reset_priority() {
   // Grab mutex lock on the mutex_lock
   //  MUTEX: Grab the mutex_lock lock
   pthread_mutex_lock(mutex_lock);
+  while( sharedBeingUsed )
+    pthread_cond_wait(shared_storage_lock, mutex_lock); // Wait till the shared storage is free to write to
+  // We are now using the shared storage
+  sharedBeingUsed = 1;
   //  MUTEX CODE BLOCK END
 
   // Don't change the priority of any emergency planes
@@ -254,7 +280,9 @@ void planes_reset_priority() {
 
   // We are done changing values in the shared region, release the lock now
   //  MUTEX: Release the mutex_lock lock
+  sharedBeingUsed = 0; // We are no longer using the shared variables
   pthread_mutex_unlock(mutex_lock);
+  pthread_cond_broadcast(shared_storage_lock); // Broadcast the signal that other threads can now use the shared storage
   //  MUTEX BLOCK END
 }
 
@@ -306,6 +334,10 @@ void planes_reorder() {
   // We will down the mutex_lock mutex as we'll be making changes to the priorities
   //  MUTEX: Grabbing the mutex_lock lock
   pthread_mutex_lock(mutex_lock);
+  while( sharedBeingUsed )
+    pthread_cond_wait(shared_storage_lock, mutex_lock); // Wait till the shared storage is free to write to
+  // We are now using the shared storage
+  sharedBeingUsed = 1;
   //  MUTEX CODE BLOCK END
   for( ctr = 0; ctr < nonEmergencyCount; ctr++ ) {
     int planeIndex = nonEmergencyPlaneIDs[ctr] - 1;
@@ -329,7 +361,9 @@ void planes_reorder() {
 
   // Release the mutex_lock lock as we're done changing values
   //  MUTEX: Release the mutex_lock lock
+  sharedBeingUsed = 0; // We are no longer using the shared variables
   pthread_mutex_unlock(mutex_lock);
+  pthread_cond_broadcast(shared_storage_lock); // Broadcast the signal that other threads can now use the shared storage
   //  MUTEX CODE BLOCK END
 }
 
@@ -338,14 +372,20 @@ void plane_deplete_fuel(int airplaneIndex) {
   //  MUTEX: Grab the mutex_lock and airplane lock
   pthread_mutex_lock(mutex_lock);
   pthread_mutex_lock(airplane_lock + airplaneIndex);
+  while( sharedBeingUsed )
+    pthread_cond_wait(shared_storage_lock, mutex_lock); // Wait till the shared storage is free to write to
+  // We are now using the shared storage
+  sharedBeingUsed = 1;
   //  SEMPAHORE CODE BLOCK END
 
   all_airplanes[airplaneIndex].fuel -= all_airplanes[airplaneIndex].rate_of_depletion;
   // Deplete the fuel by its rate and then sleep for a second after releasing the mutex_lock and airplane lock
 
   //  MUTEX: Release the mutex_lock and airplane lock
+  sharedBeingUsed = 0; // We are no longer using the shared variables
   pthread_mutex_unlock(airplane_lock + airplaneIndex);
   pthread_mutex_unlock(mutex_lock);
+  pthread_cond_broadcast(shared_storage_lock); // Broadcast the signal that other threads can now use the shared storage
   //  MUTEX CODE BLOCK END
 }
 
@@ -414,6 +454,10 @@ void plane_land_sequence(int airplane_index, int runwayToLandOn, int airplaneID)
   // Grab the mutex_lock
   //  MUTEX: Grab a lock on the mutex_lock variable
   pthread_mutex_lock(mutex_lock);
+  while( sharedBeingUsed )
+    pthread_cond_wait(shared_storage_lock, mutex_lock); // Wait till the shared storage is free to write to
+  // We are now using the shared storage
+  sharedBeingUsed = 1;
   //  MUTEX CODE BLOCK END
 
   runwaysLocked[runwayToLandOn] = 1; // We are locking this runway then
@@ -443,7 +487,9 @@ void plane_land_sequence(int airplane_index, int runwayToLandOn, int airplaneID)
 
   // Release the mutex_lock lock
   //  MUTEX: Release the mutex_lock variable lock
+  sharedBeingUsed = 0; // We are no longer using the shared variables
   pthread_mutex_unlock(mutex_lock);
+  pthread_cond_broadcast(shared_storage_lock); // Broadcast the signal that other threads can now use the shared storage
   //  MUTEX CODE BLOCK END
 
   // STEP 2: Grab the landing time and landing for the given time
@@ -464,12 +510,18 @@ void plane_land_sequence(int airplane_index, int runwayToLandOn, int airplaneID)
     // Also update the attributes
     //  MUTEX: Grab the mutex_lock lock
     pthread_mutex_lock(mutex_lock);
+    while( sharedBeingUsed )
+      pthread_cond_wait(shared_storage_lock, mutex_lock); // Wait till the shared storage is free to write to
+    // We are now using the shared storage
+    sharedBeingUsed = 1;
     //  MUTEX CODE BLOCK END
 
     all_airplanes[airplane_index].landing_time_remaining--;
 
     //  MUTEX: Release the mutex_lock lock
+    sharedBeingUsed = 0; // We are no longer using the shared variables
     pthread_mutex_unlock(mutex_lock);
+    pthread_cond_broadcast(shared_storage_lock); // Broadcast the signal that other threads can now use the shared storage
     //  MUTEX CODE BLOCK END
 
     // Help the next iteration
@@ -486,12 +538,18 @@ void plane_land_sequence(int airplane_index, int runwayToLandOn, int airplaneID)
     // Update the struct attributes
     //  MUTEX: Grab the mutex_lock lock
     pthread_mutex_lock(mutex_lock);
+    while( sharedBeingUsed )
+      pthread_cond_wait(shared_storage_lock, mutex_lock); // Wait till the shared storage is free to write to
+    // We are now using the shared storage
+    sharedBeingUsed = 1;
     //  MUTEX CODE BLOCK END
     
     all_airplanes[airplane_index].landing_time_remaining--;
 
     //  MUTEX: Release the mutex_lock lock
+    sharedBeingUsed = 0; // We are no longer using the shared variables
     pthread_mutex_unlock(mutex_lock);
+    pthread_cond_broadcast(shared_storage_lock); // Broadcast the signal that other threads can now use the shared storage
     //  MUTEX CODE BLOCK END
   }
 
@@ -502,6 +560,10 @@ void plane_land_sequence(int airplane_index, int runwayToLandOn, int airplaneID)
   // First grab the mutex_lock lock
   //  MUTEX: Grab the mutex_lock lock to make changes to the struct
   pthread_mutex_lock(mutex_lock);
+  while( sharedBeingUsed )
+    pthread_cond_wait(shared_storage_lock, mutex_lock); // Wait till the shared storage is free to write to
+  // We are now using the shared storage
+  sharedBeingUsed = 1;
   //  MUTEX CODE BLOCK END
 
   all_airplanes[airplane_index].priority = -2; // We've cleared the runway and we are no longer of concern
@@ -512,7 +574,9 @@ void plane_land_sequence(int airplane_index, int runwayToLandOn, int airplaneID)
 
   // Release the mutex_lock lock
   //  MUTEX: Release the lock as we're done cleaning up the struct
+  sharedBeingUsed = 0; // We are no longer using the shared variables
   pthread_mutex_unlock(mutex_lock);
+  pthread_cond_broadcast(shared_storage_lock); // Broadcast the signal that other threads can now use the shared storage
   //  MUTEX CODE BLOCK END
 
   // STEP 6: Release the locks on the airplane and the runway
@@ -551,12 +615,16 @@ int main(int argc, char **argv) {
     printf("Usage: %s\n", argv[0]);
     return 1; // Indicate FAILURE
   }
-  // No problems. Let us define the mutexs
+  // No problems. Let us define the mutexes
   mutex_lock = (mutex*)malloc(sizeof(mutex)); // Create a mutex_lock and set it to a default value
   pthread_mutex_init(mutex_lock, 0); // Initialize the mutex lock 
+  shared_storage_lock = (mutex_cv*)malloc(sizeof(mutex_cv)); // Shared storage lock
+  pthread_cond_init(shared_storage_lock, 0); // Initialize the storage lock
   airplane_lock = (mutex*)malloc(sizeof(mutex) * AIRPLANES_AIRSPACE); 
   runway_lock = (mutex*)malloc(sizeof(mutex) * RUNWAYS_AIRSPACE);
-  // Initialize the mutexs
+  // Initialize default values
+  sharedBeingUsed = 0; // By default the shared storage is not being written to 
+  // Initialize the mutexes
   int ctr = 0; // A loop counter
   for( ; ctr < AIRPLANES_AIRSPACE; ctr++ )
     pthread_mutex_init(airplane_lock + ctr, 0); // Initialize the airplane lock 
@@ -591,10 +659,20 @@ int main(int argc, char **argv) {
       return 1; // Exit the main with a failure
     }
   }
+  // Broadcast that the storage is free to be used
+  pthread_cond_broadcast(shared_storage_lock);
   // Once we've spawned all the threads, let them join on with the main thread, that's me
   for( airplane_loopctr = 0; airplane_loopctr < AIRPLANES_AIRSPACE; airplane_loopctr++ ) {
     pthread_join(all_airplanes[airplane_loopctr].plane_thread, NULL);
   }
+  // Clear up the memory
+  pthread_cond_destroy(shared_storage_lock);
+  pthread_mutex_destroy(mutex_lock);
+  for( ctr = 0; ctr < AIRPLANES_AIRSPACE; ctr++ )
+    pthread_mutex_destroy(airplane_lock + ctr); // Destroy the mutex
+  for( ctr = 0; ctr < RUNWAYS_AIRSPACE; ctr++ )
+    pthread_mutex_destroy(runway_lock + ctr); // Destroy this one as well
+  pthread_mutex_destroy(mutex_lock);
   // Exit now
   printf("[SIMULATION]: The simulation was successfully completed!\n");
 }

@@ -592,6 +592,12 @@ int main(int argc, char **argv) {
   for( airplane_loopctr = 0; airplane_loopctr < AIRPLANES_AIRSPACE; airplane_loopctr++ ) {
     pthread_join(all_airplanes[airplane_loopctr].plane_thread, NULL);
   }
+  // Clear up the memory
+  sem_destroy(mutex);
+  for( ctr = 0; ctr < AIRPLANES_AIRSPACE; ctr++ )
+    sem_destroy(airplane_lock + ctr);
+  for( ctr = 0; ctr < RUNWAYS_AIRSPACE; ctr++ )
+    sem_destroy(runway_lock + ctr);
   // Exit now
   printf("[SIMULATION]: The simulation was successfully completed!\n");
 }
